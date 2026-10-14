@@ -106,7 +106,7 @@ body{margin:0;font-family:var(--f-body)}
       <div class="stat big"><span class="k">第 7 天結束預估等級</span><span class="v" id="sumLv">–</span><span class="d" id="sumLvD"></span></div>
       <div class="stat"><span class="k">一週總經驗（40 級 %）</span><span class="v" id="sumExp">–</span><span class="d" id="sumExpD"></span></div>
       <div class="stat"><span class="k">一週總遊玩時數</span><span class="v" id="sumPlay">–</span><span class="d" id="sumPlayD"></span></div>
-      <div class="stat"><span class="k">週末剩餘</span><span class="v" id="sumLeft" style="font-size:15px;line-height:1.5">–</span><span class="d">結晶體／羽毛／庫存石頭</span></div>
+      <div class="stat"><span class="k">週末剩餘</span><span class="v" id="sumLeft" style="font-size:15px;line-height:1.5">–</span><span class="d">結晶體／羽毛／背包石頭（遺棄·暗影·ATS）</span></div>
     </div>
   </section>
 
@@ -128,7 +128,7 @@ body{margin:0;font-family:var(--f-body)}
 
   <section class="panel">
     <h2>每日配置</h2>
-    <p class="sub" style="margin:0 0 10px">白底欄位可以改。團練留空＝自動用掉當天剩下的可玩時數。掛機會先排暗影神殿（每小時經驗較高），再排被遺棄者之地。</p>
+    <p class="sub" style="margin:0 0 10px">白底欄位可以改。團練留空＝自動用掉當天剩下的可玩時數。掛機順序：先掛完被遺棄者之地的免費時數，再排暗影神殿（每小時經驗較高），最後才用被遺棄者之地石頭。</p>
     <div class="scroll"><table class="ledger" id="ledger"></table></div>
   </section>
 
@@ -171,7 +171,7 @@ body{margin:0;font-family:var(--f-body)}
         <label>目前羽毛（含今天）<input id="s_feathers0" type="number" step="1"></label>
         <label>每天新增羽毛<input id="s_featherDay" type="number" step="1"></label>
       </fieldset>
-      <fieldset><legend>背包庫存石頭</legend>
+      <fieldset><legend>目前背包石頭</legend>
         <label>被遺棄者之地石頭<input id="s_invA" type="number" step="1"></label>
         <label>暗影神殿石頭<input id="s_invS" type="number" step="1"></label>
         <label>ATS 石頭<input id="s_invT" type="number" step="1"></label>
@@ -196,7 +196,7 @@ body{margin:0;font-family:var(--f-body)}
       <li>ATS 時數由兩張地圖共用：掛機時數 ＝ min(地圖可用時數, ATS 可用時數, 當天可玩時數)。</li>
       <li>團練以每小時 7÷3 ≈ 2.33% 按比例計算，沒掛機的可玩時間全拿去團練。</li>
       <li>結晶體 340 個在第一天就全部可用；羽毛每天 +60（今天的已含在 286 內），當天換不完會累積到隔天。</li>
-      <li>背包庫存石頭這週任何一天都可以用，沒有每日上限。當天沒用完的免費／商店時數不會累積。</li>
+      <li>每天的免費時數（被遺棄者之地、暗影神殿、ATS）一定掛完，當天沒用就消失。買的、換的石頭都進背包，可以留到之後用；週末背包剩下的石頭（多半是被遺棄者之地）留給下週。</li>
       <li>若第一天已經過了一部分，直接改第一天的「可玩上限」再按一鍵最佳化。</li>
       <li>你的設定只存在這台裝置的瀏覽器裡，換裝置或清除瀏覽資料就會回到預設值。</li>
     </ul>

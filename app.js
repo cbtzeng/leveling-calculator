@@ -16,7 +16,7 @@ const N = 7;
 const DEFAULT_S = {startLv:40,startPct:93,growth:5,expMode:'abs',rateA:1.08,rateS:1.2,rateT:7,freeA:3,freeS:1,freeT:3,
   crystals:340,feathers0:286,featherDay:60,invA:7,invS:18,invT:19,cA:2,cS:3,cT:2,fA:15,fS:22,fT:15,flimit:3,climit:3};
 let S = Object.assign({}, DEFAULT_S);
-const blank = (play) => Array.from({length:N}, () => ({play:play, shop:[3,3,3], cry:[0,0,0], fea:[0,0,0], inv:[0,0,0], train:null}));
+const blank = (play) => Array.from({length:N}, () => ({play:play, shop:[3,3,3], cry:[0,0,0], fea:[0,0,0], inv:[null,null,null], train:null}));
 let plan = blank(17);
 let compare = null, compareName = '只買商店';
 const $ = id => document.getElementById(id);
@@ -27,8 +27,8 @@ const hasSolver = () => typeof window.solver !== 'undefined';
 function syncS(){ // keep cT/fT tied to A prices (same price in game)
   S.cT = S.cA; S.fT = S.fA;
 }
-function shopOnly(src){ return src.map(d => ({play:d.play, shop:d.shop.slice(), cry:[0,0,0], fea:[0,0,0], inv:[0,0,0], train:null})); }
-function origPlan(src){ return src.map(d => ({play:d.play, shop:d.shop.slice(), cry:[0,0,1], fea:[0,0,3], inv:[0,0,0], train:null})); }
+function shopOnly(src){ return src.map(d => ({play:d.play, shop:d.shop.slice(), cry:[0,0,0], fea:[0,0,0], inv:[null,null,null], train:null})); }
+function origPlan(src){ return src.map(d => ({play:d.play, shop:d.shop.slice(), cry:[0,0,1], fea:[0,0,3], inv:[3,null,null], train:null})); }
 function runOpt(src, s){ return hasSolver() ? M.optimize(window.solver, s || S, src.map(d => ({play:d.play, shop:d.shop.slice()}))) : null; }
 
 // ---------- ledger table ----------
@@ -48,10 +48,10 @@ const ROWS = [
   {k:'fea.0', label:'被遺棄者之地（15）', dot:'--aban', inp:true},
   {k:'fea.1', label:'暗影神殿（22）', dot:'--shadow', inp:true},
   {k:'fea.2', label:'ATS（15）', dot:'--gold', inp:true},
-  {g:'使用背包庫存石頭'},
-  {k:'inv.0', label:'被遺棄者之地', dot:'--aban', inp:true},
-  {k:'inv.1', label:'暗影神殿', dot:'--shadow', inp:true},
-  {k:'inv.2', label:'ATS', dot:'--gold', inp:true},
+  {g:'當天從背包使用石頭（留空＝自動：被遺棄不用、暗影／ATS 需要多少用多少）'},
+  {k:'inv.0', label:'被遺棄者之地', dot:'--aban', inp:true, ph:'自動'},
+  {k:'inv.1', label:'暗影神殿', dot:'--shadow', inp:true, ph:'自動'},
+  {k:'inv.2', label:'ATS', dot:'--gold', inp:true, ph:'自動'},
   {g:'結果'},
   {o:'hangS', label:'暗影神殿 掛機', dot:'--shadow'},
   {o:'hangA', label:'被遺棄者之地 掛機', dot:'--aban'},
@@ -62,7 +62,7 @@ const ROWS = [
   {o:'lv', label:'當天結束等級', cls:'lvl'},
   {o:'cry', label:'結晶體剩餘'},
   {o:'fea', label:'羽毛剩餘'},
-  {o:'inv', label:'庫存剩（遺棄／暗影／ATS）'},
+  {o:'inv', label:'日終背包（遺棄／暗影／ATS）'},
 ];
 function buildLedger(){
   let h = '<thead><tr><th class="rl">項目</th>' + DAY_LABELS.map((l, i) => '<th id="th-' + i + '">' + l + '</th>').join('') + '</tr></thead><tbody>';
@@ -81,6 +81,7 @@ function buildLedger(){
     const t = e.target; if (!t.dataset.k) return;
     const i = +t.dataset.i, k = t.dataset.k, v = t.value;
     if (k === 'train') plan[i].train = v === '' ? null : Math.max(0, +v);
+    else if (k.startsWith('inv.')) plan[i].inv[+k.split('.')[1]] = v === '' ? null : Math.max(0, Math.round(+v || 0));
     else if (k === 'play') plan[i].play = Math.max(0, +v || 0);
     else { const [a, b] = k.split('.'); plan[i][a][+b] = Math.max(0, Math.round(+v || 0)); }
     render(false);
@@ -93,16 +94,16 @@ function fillInputs(){
       let v;
       if (r.k === 'train') v = plan[i].train == null ? '' : plan[i].train;
       else if (r.k === 'play') v = plan[i].play;
-      else { const [a, b] = r.k.split('.'); v = plan[i][a][+b]; }
+      else { const [a, b] = r.k.split('.'); v = plan[i][a][+b]; if (v == null) v = ''; }
       el.value = v;
     }
   });
 }
 
 // ---------- persistence ----------
-const KEY = 'leveling-calc-v1';
+const KEY = 'leveling-calc-v2';
 function save(){ try { localStorage.setItem(KEY, JSON.stringify({S, plan, startDate})); } catch(e){} }
-function load(){ try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v && v.S && Array.isArray(v.plan) && v.plan.length === 7){ S = Object.assign({}, DEFAULT_S, v.S); plan = v.plan.map(d => Object.assign({inv:[0,0,0], train:null}, d)); if (v.startDate) startDate = v.startDate; return true; } } catch(e){} return false; }
+function load(){ try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v && v.S && Array.isArray(v.plan) && v.plan.length === 7){ S = Object.assign({}, DEFAULT_S, v.S); plan = v.plan.map(d => Object.assign({inv:[null,null,null], train:null}, d)); if (v.startDate) startDate = v.startDate; return true; } } catch(e){} return false; }
 
 // ---------- render ----------
 function render(refill){
@@ -113,26 +114,26 @@ function render(refill){
   const warns = [];
   e.days.forEach((d, i) => {
     const set = (o, html, bad) => { const c = $('o-' + o + '-' + i); c.innerHTML = html; c.classList.toggle('bad', !!bad); };
-    set('hangS', fmt(d.hangS,0) + ' h' + (d.idleS > 0 ? '<span class="idle">閒置 ' + d.idleS + ' h</span>' : ''));
-    set('hangA', fmt(d.hangA,0) + ' h' + (d.idleA > 0 ? '<span class="idle">閒置 ' + d.idleA + ' h</span>' : ''));
-    set('ats', fmt(d.hang,0) + '<span class="of">／' + d.ats + '</span>' + (d.idleT > 0 ? '<span class="idle">ATS 浪費 ' + d.idleT + ' h</span>' : ''));
+    set('hangS', fmt(d.hangS,0) + ' h' + (d.freeIdleS > 0 ? '<span class="idle">免費 ' + d.freeIdleS + ' h 沒掛</span>' : ''), d.freeIdleS > 0);
+    set('hangA', fmt(d.hangA,0) + ' h' + (d.hangAx > 0 ? '<span class="of">（免費 ' + d.hangAfree + '＋石頭 ' + d.hangAx + '）</span>' : '') + (d.freeIdleA > 0 ? '<span class="idle">免費 ' + d.freeIdleA + ' h 沒掛</span>' : ''), d.freeIdleA > 0);
+    set('ats', fmt(d.hang,0) + '<span class="of">／' + d.ats + '</span>');
     set('train', fmt(d.train, 1) + ' h');
     set('play', fmt(d.playTotal, 1) + ' h', d.overPlay);
     set('gain', fmt(d.gain, 2));
     set('lv', lvTxt(d.lv, d.pct));
     set('cry', fmt(d.cryLeft, 0), d.cryOver);
     set('fea', fmt(d.feaLeft, 0) + '<span class="of">／' + fmt(d.feaAvail,0) + '</span>', d.feaOver);
-    set('inv', d.invLeft.join('／'), d.invLeft.some(v => v < 0));
+    set('inv', d.bag.join('／'), d.useOver);
     const L = DAY_LABELS[i];
     if (d.overPlay) warns.push(L + '：遊玩時數超過可玩上限');
     if (d.feaOver) warns.push(L + '：羽毛不夠');
     if (d.limitOver) warns.push(L + '：超過每日兌換上限');
-    if (d.idleT > 0 && d.hang < plan[i].play) warns.push(L + '：有 ATS 時數沒用到');
+    if (d.freeIdleA > 0 || d.freeIdleS > 0) warns.push(L + '：免費時數沒掛完');
+    if (d.useOver) warns.push(L + '：要用的石頭比背包裡多');
   });
   const last = e.days[N-1];
   if (last.cryLeft < 0) warns.push('結晶體超支 ' + fmt(-last.cryLeft,0) + ' 個');
-  if (last.invLeft.some(v => v < 0)) warns.push('庫存石頭用超過持有數量');
-  $('warns').innerHTML = warns.length ? warns.map(w => '<span class="chip">' + w + '</span>').join('') : '<span class="chip okc">配置可行，沒有超支</span>';
+    $('warns').innerHTML = warns.length ? warns.map(w => '<span class="chip">' + w + '</span>').join('') : '<span class="chip okc">配置可行，沒有超支</span>';
 
   $('sumLv').textContent = lvTxt(e.lv, e.pct);
   const dl = e.levelFloat - base.levelFloat;
@@ -143,7 +144,7 @@ function render(refill){
   const tp = e.days.reduce((a, d) => a + d.playTotal, 0), th = e.days.reduce((a, d) => a + d.hang, 0);
   $('sumPlay').textContent = fmt(tp, 1) + ' h';
   $('sumPlayD').textContent = '掛機 ' + fmt(th,0) + ' h・團練 ' + fmt(tp - th, 1) + ' h';
-  $('sumLeft').textContent = fmt(last.cryLeft,0) + '／' + fmt(last.feaLeft,0) + '／' + last.invLeft.join('·');
+  $('sumLeft').textContent = fmt(last.cryLeft,0) + '／' + fmt(last.feaLeft,0) + '／' + last.bag.join('·');
   $('cmpName').textContent = '比較基準：' + compareName;
   drawChart(e, base);
 }
@@ -203,10 +204,11 @@ function insights(){
   const hS = S.rateS * 3, hA = S.rateA * 3, hT = S.rateT / 3;
   const li = [
     '每小時經驗：暗影神殿 ' + fmt(hS,2) + '%、被遺棄者之地 ' + fmt(hA,2) + '%、團練 ' + fmt(hT,2) + '%。能掛機就不要團練，掛機先排暗影神殿。',
-    'ATS 是瓶頸：商店買滿後地圖有 ' + (S.freeA+3+S.freeS+3) + ' 小時，ATS 只有 ' + (S.freeT+3) + ' 小時。每 1 顆 ATS 石頭把 1 小時團練換成掛機，CP 值最高，羽毛和結晶都先換 ATS。',
-    '換完 ATS 之後，第二優先是「暗影神殿石頭＋ATS 石頭」一組（每組多 ' + fmt(hS-hT,2) + '%），比被遺棄者之地那組（多 ' + fmt(hA-hT,2) + '%）划算。被遺棄者之地石頭幾乎不需要另外換。',
-    '背包庫存的暗影 ' + S.invS + ' 顆、ATS ' + S.invT + ' 顆要搭配使用；庫存暗影多於可配的 ATS 時，會被 ATS 卡住。',
-    '結晶體每天兌換上限是關鍵：若每種每天只能換 3 個，340 結晶這週只用得到約 1/3，羽毛才是瓶頸；若結晶不限量，可以每天掛滿暗影神殿，週末多大約 0.2 級。',
+    'ATS 是瓶頸：每顆 ATS 石頭都要搭一顆地圖石頭（或免費時數）才能掛機。免費時數 ' + (S.freeA+S.freeS) + ' h 比免費 ATS ' + S.freeT + ' h 多，所以 ATS 永遠先缺。羽毛和結晶都先換 ATS。',
+    '換完 ATS 之後，第二優先是「暗影神殿石頭＋ATS 石頭」一組（每組比團練多 ' + fmt(hS-hT,2) + '%），比被遺棄者之地那組（多 ' + fmt(hA-hT,2) + '%）划算，所以不用另外換被遺棄者之地石頭。',
+    '每天先掛完免費時數（被遺棄者之地 ' + S.freeA + ' h、暗影神殿 ' + S.freeS + ' h），剩下的 ATS 全部給暗影神殿。被遺棄者之地石頭多半用不到，會留在背包給下週。',
+    '石頭買了或換了都進背包，可以晚幾天再用。背包裡的暗影和 ATS 要成對才有用，ATS 不夠時暗影石頭會卡在背包。',
+    '結晶體每天兌換上限是關鍵：每種每天只能換 3 個時，結晶用不完，羽毛才是瓶頸；結晶不限量時，可以把大部分時間都排暗影神殿。',
   ];
   $('insight').innerHTML = li.map(t => '<li>' + t + '</li>').join('');
 }
