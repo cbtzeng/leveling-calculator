@@ -48,6 +48,16 @@ button:hover{border-color:var(--gold)}
 button.primary{background:var(--gold);border-color:var(--gold);color:var(--panel);font-weight:700}
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .msg{font-size:13px;color:var(--muted)}
+button:disabled{opacity:.55;cursor:progress}
+.dirty{font-size:13px;font-weight:500;color:var(--warn);background:var(--warn-soft);padding:3px 10px;border-radius:999px}
+body.is-dirty .results{opacity:.45;transition:opacity .2s}
+body.is-dirty #btnCalc,body.is-dirty #btnCalc2{box-shadow:0 0 0 3px var(--gold-soft)}
+.calcrow{display:flex;justify-content:flex-end;gap:10px;align-items:center;flex-wrap:wrap}
+.loading{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--bg) 70%,transparent);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.loading .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 28px;display:flex;align-items:center;gap:14px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+.spin{width:26px;height:26px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--gold);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
 .alerts{display:flex;flex-direction:column;gap:6px}
 .alert{border-radius:8px;padding:8px 12px;font-size:13.5px;background:var(--bad-soft);color:var(--bad)}
 .alert.ok{background:var(--ok-soft);color:var(--ok)}
@@ -88,13 +98,14 @@ details[open]>summary::before{content:"▾ "}
 </style>
 </head>
 <body>
+<div class="loading" id="loading" hidden role="status" aria-live="polite"><div class="box"><span class="spin" aria-hidden="true"></span><span id="loadingTxt">計算中…</span></div></div>
 <div class="wrap">
   <header>
     <h1>七日練功試算</h1>
     <p class="sub"><span id="rangeTxt"></span>。每天填可玩時數、團練、被遺棄者之地、暗影神殿，ATS 自動加總。商店每天各買 3 顆石頭，不夠的部分自動用羽毛和結晶體兌換，資源不夠時會告訴你哪一天開始缺。</p>
   </header>
 
-  <section class="panel">
+  <section class="panel results">
     <div class="summary">
       <div class="stat lv"><span class="k">第 7 天結束等級</span><span class="v" id="sumLv">–</span><span class="d" id="sumExp"></span></div>
       <div class="stat"><span class="k">資源夠不夠</span><span class="v" id="sumOk">–</span><span class="d" id="sumOkD"></span></div>
@@ -105,11 +116,13 @@ details[open]>summary::before{content:"▾ "}
 
   <div class="bar">
     <label class="toggle"><input type="checkbox" id="useFea" checked> 使用羽毛兌換</label>
-    <button class="primary" type="button" id="btnSuggest">幫我排經驗最多的時數</button>
+    <button class="primary" type="button" id="btnCalc">計算</button>
+    <button type="button" id="btnSuggest">幫我排經驗最多的時數</button>
     <button type="button" id="btnReset">恢復預設值</button>
+    <span class="dirty" id="dirtyHint" hidden>有修改，按「計算」更新結果</span>
     <span class="msg" id="msg"></span>
   </div>
-  <div class="alerts" id="alerts"></div>
+  <div class="alerts results" id="alerts"></div>
 
   <section class="panel">
     <h2>每日時數</h2>
@@ -124,12 +137,13 @@ details[open]>summary::before{content:"▾ "}
           <th>時間檢查</th><th>當天經驗</th><th>日終等級</th>
         </tr></thead>
         <tbody id="planBody"></tbody>
-        <tfoot><tr id="planFoot"></tr></tfoot>
+        <tfoot class="results"><tr id="planFoot"></tr></tfoot>
       </table>
     </div>
+    <div class="calcrow"><span class="msg">填完時數後按計算</span><button class="primary" type="button" id="btnCalc2">計算</button></div>
   </section>
 
-  <section class="panel">
+  <section class="panel results">
     <h2>石頭從哪裡來</h2>
     <p class="sub" style="margin:0">「要用石頭」＝超過每日免費時數的部分。先用背包（含商店每天買的各 3 顆），不夠才換。兌換數量已經算成最省的配法，照著換就好。</p>
     <div class="scroll">
@@ -194,6 +208,7 @@ details[open]>summary::before{content:"▾ "}
       <li>買的、換的石頭都進背包，可以留到之後用。兌換時優先用羽毛（會每天補），再用結晶體，總量是整週最省的配法。</li>
       <li>某天的石頭就算把能換的都換了還是不夠，那一天會標紅，並寫出缺幾小時。經驗仍照你填的時數計算。</li>
       <li>經驗以起始等級一整級＝100% 計算，每升一級需求 +5%。團練以每小時 7÷3 ≈ 2.33% 按比例計算。</li>
+      <li>改完數字後按「計算」才會更新結果；計算在背景進行，超過 15 秒會改用簡易算法。</li>
       <li>設定存在這台裝置的瀏覽器裡。</li>
     </ul>
   </section>

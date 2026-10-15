@@ -26,6 +26,57 @@
   const h = v => (Math.round(v * 10) / 10).toString();
   const lvTxt = (lv, pct) => lv + ' 級 ' + fmt(pct, 1) + '%';
   const NAMES = ['被遺棄', '暗影', 'ATS'];
+  const SOLVER_URL = 'https://cdn.jsdelivr.net/npm/javascript-lp-solver@0.4.24/prod/solver.js';
+  const TIMEOUT_MS = 15000;
+  let dirty = false, busy = false;
+
+  // ---------- background worker ----------
+  let worker = null, jobId = 0;
+  const pending = {};
+  function makeWorker() {
+    try {
+      const modelUrl = new URL('model.js', location.href).href;
+      const src = "importScripts(" + JSON.stringify(SOLVER_URL) + "," + JSON.stringify(modelUrl) + ");" +
+        "self.onmessage=function(e){var d=e.data,res;try{res=d.type==='check'?GameModel.check(self.solver,d.S,d.days,d.useFea):GameModel.suggest(self.solver,d.S,d.days,d.useFea);postMessage({id:d.id,ok:true,res:res});}catch(err){postMessage({id:d.id,ok:false,err:String(err)});}};";
+      const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      w.onmessage = e => { const p = pending[e.data.id]; if (p) { delete pending[e.data.id]; clearTimeout(p.timer); p.done(e.data); } };
+      w.onerror = () => { Object.keys(pending).forEach(id => { const p = pending[id]; delete pending[id]; clearTimeout(p.timer); p.done({ ok: false, err: 'worker' }); }); worker = null; };
+      return w;
+    } catch (e) { return null; }
+  }
+  function runJob(type, payload) {
+    return new Promise(resolve => {
+      if (!worker) worker = makeWorker();
+      if (!worker) { // no worker support: run on the main thread after the loading screen paints
+        setTimeout(() => {
+          try { resolve({ ok: true, res: type === 'check' ? M.check(solver(), payload.S, payload.days, payload.useFea) : M.suggest(solver(), payload.S, payload.days, payload.useFea) }); }
+          catch (err) { resolve({ ok: false, err: String(err) }); }
+        }, 50);
+        return;
+      }
+      const id = ++jobId;
+      const timer = setTimeout(() => {
+        delete pending[id];
+        try { worker.terminate(); } catch (e) {}
+        worker = null;
+        resolve({ ok: false, err: 'timeout' });
+      }, TIMEOUT_MS);
+      pending[id] = { done: resolve, timer };
+      worker.postMessage(Object.assign({ id, type }, JSON.parse(JSON.stringify(payload))));
+    });
+  }
+  function setBusy(on, text) {
+    busy = on;
+    $('loading').hidden = !on;
+    if (text) $('loadingTxt').textContent = text;
+    ['btnCalc', 'btnSuggest', 'btnReset'].forEach(id => { $(id).disabled = on; });
+  }
+  function markDirty() {
+    dirty = true;
+    document.body.classList.add('is-dirty');
+    $('dirtyHint').hidden = false;
+    save();
+  }
 
   function makeLabels() {
     const [y, m, d] = startDate.split('-').map(Number);
@@ -67,8 +118,9 @@
     $('planBody').innerHTML = html;
     $('planBody').addEventListener('input', e => {
       const t = e.target; if (!t.dataset.k) return;
-      days[+t.dataset.i][t.dataset.k] = Math.max(0, +t.value || 0);
-      render();
+      const i = +t.dataset.i;
+      days[i][t.dataset.k] = Math.max(0, +t.value || 0);
+      liveRow(i); markDirty();
     });
   }
   function fillPlan() {
@@ -77,29 +129,37 @@
 
   const triple = arr => arr.map((v, k) => v ? NAMES[k] + ' ' + v : '').filter(Boolean).join('、') || '<span class="zero">—</span>';
 
-  // ---------- render ----------
-  function render() {
-    save();
-    const r = M.check(solver(), S, days, useFea);
+  // ---------- instant per-row feedback (no solver) ----------
+  function liveRow(i) {
+    const day = days[i], a = day.a, s = day.s, sum = a + s + day.t, spare = day.play - sum;
+    $('pd-' + i).textContent = labels[i];
+    $('o-ats-' + i).textContent = h(a + s) + ' h';
+    let chk;
+    if (spare < -1e-9) chk = '<span class="tag bad">超過 ' + h(-spare) + ' h</span>';
+    else if (spare > 1e-9) chk = '<span class="tag warn">還有 ' + h(spare) + ' h 沒排</span>';
+    else chk = '<span class="tag ok">剛好</span>';
+    const idleA = Math.max(0, Math.min(S.freeA, day.play) - a), idleS = Math.max(0, S.freeS - s);
+    if (idleA > 0 || idleS > 0) {
+      const parts = [];
+      if (idleA > 0) parts.push('被遺棄者之地 ' + h(idleA) + ' h');
+      if (idleS > 0) parts.push('暗影神殿 ' + h(idleS) + ' h');
+      chk += '<span class="note">免費時數沒掛完：' + parts.join('、') + '</span>';
+    }
+    $('o-chk-' + i).innerHTML = chk;
+  }
+  function liveAll() { for (let i = 0; i < N; i++) liveRow(i); }
+
+  // ---------- results (after 計算) ----------
+  function renderResults(r, note) {
     const alerts = [];
+    if (note) alerts.push(['warn', note]);
     let resHtml = '';
     let totPlay = 0, totT = 0, totA = 0, totS = 0;
     r.days.forEach((d, i) => {
       const day = days[i];
       totPlay += day.play; totT += day.t; totA += day.a; totS += day.s;
-      $('pd-' + i).textContent = labels[i];
-      $('o-ats-' + i).textContent = h(d.ats) + ' h';
-      let chk;
-      if (d.spare < -1e-9) { chk = '<span class="tag bad">超過 ' + h(-d.spare) + ' h</span>'; alerts.push(['warn', labels[i] + '：團練＋地圖 ' + h(d.sum) + ' h，超過可玩的 ' + h(day.play) + ' h。']); }
-      else if (d.spare > 1e-9) chk = '<span class="tag warn">還有 ' + h(d.spare) + ' h 沒排</span>';
-      else chk = '<span class="tag ok">剛好</span>';
-      if (d.freeIdleA > 0 || d.freeIdleS > 0) {
-        const parts = [];
-        if (d.freeIdleA > 0) parts.push('被遺棄者之地 ' + h(d.freeIdleA) + ' h');
-        if (d.freeIdleS > 0) parts.push('暗影神殿 ' + h(d.freeIdleS) + ' h');
-        chk += '<span class="note">免費時數沒掛完：' + parts.join('、') + '</span>';
-      }
-      $('o-chk-' + i).innerHTML = chk;
+      liveRow(i);
+      if (d.spare < -1e-9) alerts.push(['warn', labels[i] + '：團練＋地圖 ' + h(d.sum) + ' h，超過可玩的 ' + h(day.play) + ' h。']);
       $('o-gain-' + i).textContent = '+' + fmt(d.gain, 2) + '%';
       $('o-lv-' + i).textContent = lvTxt(d.lv, d.pct);
       $('pr-' + i).classList.toggle('short', d.isShort);
@@ -136,6 +196,24 @@
 
     if (ok && !alerts.some(a => a[0] === 'warn')) alerts.unshift(['ok', '每天的時數都排得出來，羽毛和結晶體整週都夠。']);
     $('alerts').innerHTML = alerts.map(([c, t]) => '<div class="alert' + (c === 'bad' ? '' : ' ' + c) + '">' + t + '</div>').join('');
+    dirty = false;
+    document.body.classList.remove('is-dirty');
+    $('dirtyHint').hidden = true;
+    save();
+  }
+
+  async function calculate() {
+    if (busy) return;
+    setBusy(true, '計算中…');
+    const t0 = Date.now();
+    const out = await runJob('check', { S, days, useFea });
+    let r = out.ok ? out.res : null, note = '';
+    if (!r) { // timeout or failure: fall back to the quick day-by-day method
+      r = M.check(null, S, days, useFea);
+      note = out.err === 'timeout' ? '計算超過 15 秒，已改用簡易算法：先用背包、再換羽毛、最後換結晶體。結果可能不是最省的換法。' : '最佳化計算失敗，已改用簡易算法：先用背包、再換羽毛、最後換結晶體。';
+    }
+    const wait = Math.max(0, 250 - (Date.now() - t0)); // keep the loader visible long enough to read
+    setTimeout(() => { renderResults(r, note); setBusy(false); }, wait);
   }
 
   // ---------- settings ----------
@@ -145,12 +223,12 @@
       el.value = S[k];
       el.addEventListener('input', () => {
         S[k] = el.tagName === 'SELECT' ? el.value : (+el.value || 0);
-        syncS(); render();
+        syncS(); liveAll(); markDirty();
       });
     });
     const sd = $('s_startDate');
     sd.value = startDate;
-    sd.addEventListener('change', () => { if (sd.value) { startDate = sd.value; makeLabels(); render(); } });
+    sd.addEventListener('change', () => { if (sd.value) { startDate = sd.value; makeLabels(); liveAll(); markDirty(); } });
   }
   function refreshSettings() {
     Object.keys(DEFAULT_S).forEach(k => { const el = $('s_' + k); if (el) el.value = S[k]; });
@@ -158,27 +236,38 @@
   }
 
   // ---------- actions ----------
-  $('useFea').addEventListener('change', e => { useFea = e.target.checked; render(); });
-  $('btnSuggest').addEventListener('click', () => {
-    if (!solver()) { $('msg').textContent = '計算模組沒有載入，請重新整理頁面。'; return; }
-    const sg = M.suggest(solver(), S, days.map(d => ({ play: d.play })), useFea);
-    if (!sg) { $('msg').textContent = '排不出可行的時數，請檢查設定。'; return; }
-    days = sg.map(d => ({ play: d.play, t: d.t, a: d.a, s: d.s }));
-    fillPlan(); render();
-    $('msg').textContent = '已依每天的可玩時數，排出資源夠用、經驗最多的時數。';
+  $('useFea').addEventListener('change', e => { useFea = e.target.checked; markDirty(); });
+  $('btnCalc').addEventListener('click', calculate);
+  $('btnCalc2').addEventListener('click', calculate);
+  $('btnSuggest').addEventListener('click', async () => {
+    if (busy) return;
+    setBusy(true, '排時數中…');
+    const out = await runJob('suggest', { S, days: days.map(d => ({ play: d.play })), useFea });
+    if (!out.ok || !out.res) {
+      setBusy(false);
+      $('msg').textContent = out.err === 'timeout' ? '排時數超過 15 秒沒有結果，請稍後再試或手動調整。' : '排不出可行的時數，請檢查設定。';
+      return;
+    }
+    days = out.res.map(d => ({ play: d.play, t: d.t, a: d.a, s: d.s }));
+    fillPlan(); liveAll();
+    setBusy(false);
+    $('msg').textContent = '已依每天的可玩時數排好時數，接著計算資源。';
+    calculate();
   });
   $('btnReset').addEventListener('click', () => {
     try { localStorage.removeItem(KEY); } catch (e) {}
     S = Object.assign({}, DEFAULT_S); days = DEFAULT_DAYS.map(d => Object.assign({}, d));
     useFea = true; startDate = DEFAULT_START;
-    $('useFea').checked = true; makeLabels(); refreshSettings(); fillPlan(); render();
+    $('useFea').checked = true; makeLabels(); refreshSettings(); fillPlan(); liveAll();
     $('msg').textContent = '已恢復預設值。';
+    calculate();
   });
 
   // ---------- boot ----------
   const restored = load();
   syncS(); makeLabels(); buildPlan(); bindSettings(); fillPlan();
   $('useFea').checked = useFea;
-  render();
+  liveAll();
+  calculate();
   if (restored) $('msg').textContent = '已載入你上次在這台裝置的設定。';
 })();
