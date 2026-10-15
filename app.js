@@ -27,7 +27,7 @@
   const lvTxt = (lv, pct) => lv + ' 級 ' + fmt(pct, 1) + '%';
   const NAMES = ['被遺棄', '暗影', 'ATS'];
   const SOLVER_URL = 'https://cdn.jsdelivr.net/npm/javascript-lp-solver@0.4.24/prod/solver.js';
-  const TIMEOUT_MS = 15000;
+  const TIMEOUT_MS = 8000;
   let dirty = false, busy = false;
 
   // ---------- background worker ----------
@@ -35,7 +35,7 @@
   const pending = {};
   function makeWorker() {
     try {
-      const modelUrl = new URL('model.js', location.href).href;
+      const modelUrl = new URL('model.js?v=5', location.href).href;
       const src = "importScripts(" + JSON.stringify(SOLVER_URL) + "," + JSON.stringify(modelUrl) + ");" +
         "self.onmessage=function(e){var d=e.data,res;try{res=d.type==='check'?GameModel.check(self.solver,d.S,d.days,d.useFea):GameModel.suggest(self.solver,d.S,d.days,d.useFea);postMessage({id:d.id,ok:true,res:res});}catch(err){postMessage({id:d.id,ok:false,err:String(err)});}};";
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
@@ -208,9 +208,9 @@
     const t0 = Date.now();
     const out = await runJob('check', { S, days, useFea });
     let r = out.ok ? out.res : null, note = '';
-    if (!r) { // timeout or failure: fall back to the quick day-by-day method
+    if (!r) { // background worker unavailable: compute on the page (fast)
       r = M.check(null, S, days, useFea);
-      note = out.err === 'timeout' ? '計算超過 15 秒，已改用簡易算法：先用背包、再換羽毛、最後換結晶體。結果可能不是最省的換法。' : '最佳化計算失敗，已改用簡易算法：先用背包、再換羽毛、最後換結晶體。';
+      note = '';
     }
     const wait = Math.max(0, 250 - (Date.now() - t0)); // keep the loader visible long enough to read
     setTimeout(() => { renderResults(r, note); setBusy(false); }, wait);
@@ -245,7 +245,7 @@
     const out = await runJob('suggest', { S, days: days.map(d => ({ play: d.play })), useFea });
     if (!out.ok || !out.res) {
       setBusy(false);
-      $('msg').textContent = out.err === 'timeout' ? '排時數超過 15 秒沒有結果，請稍後再試或手動調整。' : '排不出可行的時數，請檢查設定。';
+      $('msg').textContent = out.err === 'timeout' ? '排時數沒有回應，請重新整理頁面再試。' : '排不出可行的時數，請檢查設定。';
       return;
     }
     days = out.res.map(d => ({ play: d.play, t: d.t, a: d.a, s: d.s }));

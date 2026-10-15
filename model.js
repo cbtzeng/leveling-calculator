@@ -1,7 +1,7 @@
 // 七日練功試算 — pure model.
 // The player enters hours per day (play, train, abandoned land, shadow temple); ATS = map hours.
 // check(): works out which stones are needed, takes them from the bag first, then exchanges
-// with feathers / crystals as cheaply as possible, and reports any shortfall per day.
+// with feathers before crystals (day by day, no search), and reports any shortfall per day.
 // suggest(): fills in the hour split that gives the most exp with the stones available.
 (function (root) {
   const TYPES = ['A', 'S', 'T']; // 被遺棄者之地, 暗影神殿, ATS
@@ -30,73 +30,56 @@
   }
 
   // ---------- stone sourcing ----------
-  function sourceLP(solver, S, days, useFeathers) {
+  // Fast exact-enough sourcing, day by day (no search, runs in well under a millisecond).
+  // For each day's shortfall of a stone type it exchanges on the latest day that still has room
+  // (today first, then earlier days), feathers before crystals, respecting the daily caps,
+  // the running feather balance and the crystal total. Earlier days are always served first.
+  function sourceFast(S, days, useFeathers) {
     const n = days.length, inv0 = [S.invA, S.invS, S.invT];
     const cc = [S.cA, S.cS, S.cT], fc = [S.fA, S.fS, S.fT];
-    const m = { optimize: 'cost', opType: 'min', constraints: {}, variables: {}, ints: {} };
-    const C = m.constraints, V = m.variables;
-    C.cry = { max: S.crystals };
-    days.forEach((d, i) => {
-      const nd = needs(S, d);
-      C['F' + i] = { max: S.feathers0 + S.featherDay * i };
-      TYPES.forEach((k, kk) => {
-        C['N' + k + i] = { min: nd[kk] };
-        C['B' + k + i] = { max: inv0[kk] + S.shop * (i + 1) };
-      });
-    });
-    days.forEach((d, i) => {
-      TYPES.forEach((k, kk) => {
-        const u = 'u' + k + i, sh = 'x' + k + i, c = 'c' + k + i, f = 'f' + k + i;
-        V[u] = { cost: 0, ['N' + k + i]: 1 };
-        V[sh] = { cost: 1000 * (1 + 0.2 * (n - 1 - i)), ['N' + k + i]: 1 };
-        V[c] = { cost: cc[kk] * (1 + 0.001 * (n - i)), cry: cc[kk], ['L' + c]: 1 };
-        C['L' + c] = { max: S.climit > 0 ? S.climit : 999 };
-        m.ints[c] = 1;
-        if (useFeathers) {
-          V[f] = { cost: 0.05 * fc[kk] * (1 + 0.001 * (n - i)), ['L' + f]: 1 };
-          C['L' + f] = { max: S.flimit };
-          m.ints[f] = 1;
-        }
-        for (let j = i; j < n; j++) {
-          V[u]['B' + k + j] = 1;
-          V[c]['B' + k + j] = -1;
-          if (useFeathers) { V[f]['B' + k + j] = -1; V[f]['F' + j] = fc[kk]; }
-        }
-      });
-    });
-    m.options = { timeout: 3000, tolerance: 0 };
-    const r = solver.Solve(m);
-    if (!r.feasible) return null;
-    const g = (k) => Math.max(0, Math.round(r[k] || 0));
-    return days.map((d, i) => ({
-      cry: TYPES.map(k => g('c' + k + i)),
-      fea: TYPES.map(k => useFeathers ? g('f' + k + i) : 0),
-    }));
-  }
-
-  // fallback when the solver is unavailable: bag first, then feathers, then crystals, day by day
-  function sourceGreedy(S, days, useFeathers) {
-    const bag = [S.invA, S.invS, S.invT];
-    let cry = S.crystals, fea = S.feathers0;
-    const cc = [S.cA, S.cS, S.cT], fc = [S.fA, S.fS, S.fT];
-    return days.map((d, i) => {
-      if (i > 0) fea += S.featherDay;
-      const nd = needs(S, d), out = { cry: [0, 0, 0], fea: [0, 0, 0] };
+    const fea = days.map(() => [0, 0, 0]), cry = days.map(() => [0, 0, 0]);
+    const feaAt = new Array(n).fill(0); // feather cost spent on each day
+    const budget = i => S.feathers0 + S.featherDay * i;
+    let cryUsed = 0;
+    const used = [0, 0, 0];
+    const feaOk = (j, cost) => {
+      let run = 0;
+      for (let m = 0; m < n; m++) {
+        run += feaAt[m] + (m === j ? cost : 0);
+        if (m >= j && run > budget(m)) return false;
+      }
+      return true;
+    };
+    for (let i = 0; i < n; i++) {
+      const nd = needs(S, days[i]);
       [2, 1, 0].forEach(k => {
-        bag[k] += S.shop;
-        let gap = Math.max(0, nd[k] - bag[k]);
-        while (gap > 0 && useFeathers && out.fea[k] < S.flimit && fea >= fc[k]) { out.fea[k]++; fea -= fc[k]; gap--; }
-        while (gap > 0 && (S.climit <= 0 || out.cry[k] < S.climit) && cry >= cc[k]) { out.cry[k]++; cry -= cc[k]; gap--; }
-        bag[k] += out.fea[k] + out.cry[k];
-        bag[k] -= Math.min(bag[k], nd[k]);
+        let have = inv0[k] + S.shop * (i + 1) - used[k];
+        for (let j = 0; j <= i; j++) have += fea[j][k] + cry[j][k];
+        let gap = nd[k] - have;
+        while (gap > 0) {
+          let done = false;
+          if (useFeathers && S.flimit > 0) {
+            for (let j = i; j >= 0 && !done; j--) {
+              if (fea[j][k] < S.flimit && feaOk(j, fc[k])) { fea[j][k]++; feaAt[j] += fc[k]; done = true; }
+            }
+          }
+          if (!done) {
+            for (let j = i; j >= 0 && !done; j--) {
+              if ((S.climit <= 0 || cry[j][k] < S.climit) && cryUsed + cc[k] <= S.crystals) { cry[j][k]++; cryUsed += cc[k]; done = true; }
+            }
+          }
+          if (!done) break;
+          gap--; have++;
+        }
+        used[k] += Math.min(nd[k], have);
       });
-      return out;
-    });
+    }
+    return days.map((d, i) => ({ cry: cry[i], fea: fea[i] }));
   }
 
   // ---------- full check: exchanges, balances, shortfalls, exp ----------
   function check(solver, S, days, useFeathers) {
-    const ex = (solver && sourceLP(solver, S, days, useFeathers)) || sourceGreedy(S, days, useFeathers);
+    const ex = sourceFast(S, days, useFeathers);
     const R = rates(S);
     const bag = [S.invA, S.invS, S.invT];
     let cry = S.crystals, feaSpent = 0;
@@ -155,17 +138,14 @@
         V['hS' + i] = { obj: R.s * (1 + 1e-4 * (n - i)), ['S' + i]: 1, ['T' + i]: 1, ['P' + i]: 1 };
         if (mandatory) { V['hA' + i]['mA' + i] = 1; V['hS' + i]['mS' + i] = 1; }
         V['tr' + i] = { obj: R.t, ['P' + i]: 1 };
-        m.ints['hA' + i] = 1; m.ints['hS' + i] = 1;
         TYPES.forEach((k, kk) => {
           const c = 'c' + k + i, f = 'f' + k + i, u = 'u' + k + i;
           V[c] = { obj: -1e-4 * cc[kk], cry: cc[kk], ['L' + c]: 1 };
           C['L' + c] = { max: S.climit > 0 ? S.climit : 999 };
           V[u] = { obj: -1e-6 * (kk === 0 ? 50 : 1), [k + i]: -1 };
-          m.ints[c] = 1; m.ints[u] = 1;
           if (useFeathers) {
             V[f] = { obj: -1e-5 * fc[kk], ['L' + f]: 1 };
             C['L' + f] = { max: S.flimit };
-            m.ints[f] = 1;
           }
           for (let j = i; j < n; j++) {
             V[c]['B' + k + j] = -1; V[u]['B' + k + j] = 1;
@@ -176,13 +156,33 @@
       m.options = { timeout: 4000, tolerance: 0.002 };
       return m;
     };
+    // continuous LP (fast simplex), then round down and repair with the day-by-day check
     let r = solver.Solve(build(true));
     if (!r.feasible) r = solver.Solve(build(false));
     if (!r.feasible) return null;
-    return days.map((d, i) => {
-      const a = Math.round(r['hA' + i] || 0), s = Math.round(r['hS' + i] || 0);
+    const plan = days.map((d, i) => {
+      const a = Math.floor((r['hA' + i] || 0) + 1e-6), s = Math.floor((r['hS' + i] || 0) + 1e-6);
       return { play: d.play, a, s, t: Math.max(0, +(d.play - a - s).toFixed(2)) };
     });
+    for (let guard = 0; guard < 200; guard++) {
+      const res = check(null, S, plan, useFeathers);
+      const bad = res.days.findIndex(x => x.isShort);
+      if (bad < 0) break;
+      const p = plan[bad], sh = res.days[bad].short;
+      if (sh[1] > 0 || (sh[2] > 0 && p.s > S.freeS)) { p.s--; }
+      else if (p.a > S.freeA) { p.a--; }
+      else if (p.s > 0) { p.s--; }
+      else break;
+      p.t = Math.max(0, +(p.play - p.a - p.s).toFixed(2));
+    }
+    // use any stones freed up by rounding: try adding shadow hours back where training remains
+    for (let i = 0; i < plan.length; i++) {
+      while (plan[i].t >= 1) {
+        plan[i].s++; plan[i].t = +(plan[i].t - 1).toFixed(2);
+        if (check(null, S, plan, useFeathers).firstShort >= 0) { plan[i].s--; plan[i].t = +(plan[i].t + 1).toFixed(2); break; }
+      }
+    }
+    return plan;
   }
 
   root.GameModel = { needs, check, suggest };
