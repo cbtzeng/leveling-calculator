@@ -1,127 +1,189 @@
-// Pure model: evaluate a plan and build/solve the optimization. Shared by page + node test.
-// Stones are items: whatever is bought or exchanged goes into the bag and can be used that day or later.
-// Free hours are per day and must be hung: abandoned-land free hours first, then shadow temple, then extra abandoned-land hours.
+// 七日練功試算 — pure model.
+// The player enters hours per day (play, train, abandoned land, shadow temple); ATS = map hours.
+// check(): works out which stones are needed, takes them from the bag first, then exchanges
+// with feathers / crystals as cheaply as possible, and reports any shortfall per day.
+// suggest(): fills in the hour split that gives the most exp with the stones available.
 (function (root) {
-  const K = 3; // 0 = 被遺棄者之地, 1 = 暗影神殿, 2 = ATS
+  const TYPES = ['A', 'S', 'T']; // 被遺棄者之地, 暗影神殿, ATS
 
-  function evaluate(S, days) {
-    const rA = S.rateA * 3, rS = S.rateS * 3, rT = S.rateT / 3; // % per hour
-    let lv = S.startLv, cur = S.startPct, req = 1;
-    let cry = S.crystals, feaSpent = 0, totalGain = 0;
-    const bag = [S.invA, S.invS, S.invT];
-    const out = [];
-    days.forEach((d, i) => {
-      const got = [0, 1, 2].map(k => d.shop[k] + d.cry[k] + d.fea[k]);
-      for (let k = 0; k < K; k++) bag[k] += got[k];
-      const bagStart = bag.slice();
-      // planned use: null = auto (A: 0 extra, S/ATS: as many as useful)
-      const use = (d.inv || [null, null, null]).map((v, k) => v == null ? (k === 0 ? 0 : Infinity) : v);
-      const useOver = use.some((v, k) => v !== Infinity && v > bagStart[k]);
-      const usable = use.map((v, k) => Math.max(0, Math.min(v, bagStart[k])));
-      const ats = S.freeT + usable[2];
-      const play = d.play;
-      const hangAfree = Math.max(0, Math.min(S.freeA, ats, play));
-      const hangS = Math.max(0, Math.min(S.freeS + usable[1], ats - hangAfree, play - hangAfree));
-      const hangAx = Math.max(0, Math.min(usable[0], ats - hangAfree - hangS, play - hangAfree - hangS));
-      const hangA = hangAfree + hangAx, hang = hangA + hangS;
-      const consumed = [hangAx, Math.max(0, hangS - S.freeS), Math.max(0, hang - S.freeT)];
-      for (let k = 0; k < K; k++) bag[k] -= consumed[k];
-      const autoTrain = Math.max(0, play - hang);
-      const train = d.train == null ? autoTrain : Math.max(0, d.train);
-      const gainBase = hangA * rA + hangS * rS + train * rT;
-      const cryCost = d.cry[0] * S.cA + d.cry[1] * S.cS + d.cry[2] * S.cT;
-      const feaCost = d.fea[0] * S.fA + d.fea[1] * S.fS + d.fea[2] * S.fT;
-      const feaAvail = S.feathers0 + S.featherDay * i - feaSpent;
-      cry -= cryCost; feaSpent += feaCost;
-      let gainLeft = gainBase;
-      if (S.expMode === 'pct') {
-        while (gainLeft > 0) {
-          const need = 100 - cur;
-          if (gainLeft >= need) { gainLeft -= need; lv++; cur = 0; } else { cur += gainLeft; gainLeft = 0; }
-        }
-      } else {
-        while (gainLeft > 0) {
-          const needAbs = (100 - cur) * req;
-          if (gainLeft >= needAbs) { gainLeft -= needAbs; lv++; cur = 0; req *= 1 + S.growth / 100; }
-          else { cur += gainLeft / req; gainLeft = 0; }
-        }
-      }
-      totalGain += gainBase;
-      out.push({
-        hangA, hangAfree, hangAx, hangS, hang, ats, train, autoTrain, consumed,
-        playTotal: hang + train, overPlay: hang + train > play + 1e-9,
-        freeIdleA: S.freeA - hangAfree, freeIdleS: S.freeS - Math.min(hangS, S.freeS), freeIdleT: S.freeT - Math.min(hang, S.freeT),
-        gain: gainBase, lv, pct: cur, cryLeft: cry, cryCost, feaCost,
-        feaAvail, feaLeft: feaAvail - feaCost,
-        feaOver: feaCost > feaAvail + 1e-9, cryOver: cry < -1e-9, useOver,
-        bag: bag.slice(),
-        limitOver: d.fea.some(v => v > S.flimit) || (S.climit > 0 && d.cry.some(v => v > S.climit)),
-      });
-    });
-    return { days: out, lv, pct: cur, totalGain, levelFloat: lv + cur / 100, bag: bag.slice() };
+  function needs(S, d) {
+    const A = Math.max(0, d.a || 0), Sh = Math.max(0, d.s || 0);
+    return [Math.max(0, A - S.freeA), Math.max(0, Sh - S.freeS), Math.max(0, A + Sh - S.freeT)];
   }
 
-  function buildModel(S, days, mandatory) {
-    const rA = S.rateA * 3, rS = S.rateS * 3, rT = S.rateT / 3;
-    const m = { optimize: 'obj', opType: 'max', constraints: {}, variables: {}, ints: {} };
+  function rates(S) { return { a: S.rateA * 3, s: S.rateS * 3, t: S.rateT / 3 }; }
+
+  function addExp(S, st, gain) {
+    let left = gain;
+    if (S.expMode === 'pct') {
+      while (left > 1e-12) {
+        const need = 100 - st.pct;
+        if (left >= need) { left -= need; st.lv++; st.pct = 0; } else { st.pct += left; left = 0; }
+      }
+    } else {
+      while (left > 1e-12) {
+        const needAbs = (100 - st.pct) * st.req;
+        if (left >= needAbs) { left -= needAbs; st.lv++; st.pct = 0; st.req *= 1 + S.growth / 100; }
+        else { st.pct += left / st.req; left = 0; }
+      }
+    }
+  }
+
+  // ---------- stone sourcing ----------
+  function sourceLP(solver, S, days, useFeathers) {
+    const n = days.length, inv0 = [S.invA, S.invS, S.invT];
+    const cc = [S.cA, S.cS, S.cT], fc = [S.fA, S.fS, S.fT];
+    const m = { optimize: 'cost', opType: 'min', constraints: {}, variables: {}, ints: {} };
     const C = m.constraints, V = m.variables;
-    const n = days.length, keys = ['A', 'S', 'T'], inv0 = [S.invA, S.invS, S.invT];
-    const costC = [S.cA, S.cS, S.cT], costF = [S.fA, S.fS, S.fT];
     C.cry = { max: S.crystals };
     days.forEach((d, i) => {
-      C['A' + i] = { max: S.freeA };   // hA - uA <= freeA
-      C['S' + i] = { max: S.freeS };   // hS - uS <= freeS
-      C['T' + i] = { max: S.freeT };   // hA + hS - uT <= freeT
-      C['P' + i] = { max: d.play };
+      const nd = needs(S, d);
       C['F' + i] = { max: S.feathers0 + S.featherDay * i };
-      if (mandatory) {
-        const ma = Math.min(S.freeA, d.play);
-        C['mA' + i] = { min: ma };
-        C['mS' + i] = { min: Math.min(S.freeS, Math.max(0, d.play - ma)) };
-      }
-      // bag balance: inv0 + sum_{j<=i}(shop + c + f - u) >= 0  ->  sum(u - c - f) <= inv0 + sum shop
-      keys.forEach((k, kk) => {
-        let shopSum = 0; for (let j = 0; j <= i; j++) shopSum += days[j].shop[kk];
-        C['B' + k + i] = { max: inv0[kk] + shopSum };
+      TYPES.forEach((k, kk) => {
+        C['N' + k + i] = { min: nd[kk] };
+        C['B' + k + i] = { max: inv0[kk] + S.shop * (i + 1) };
       });
     });
     days.forEach((d, i) => {
-      V['hA' + i] = { obj: rA, ['A' + i]: 1, ['T' + i]: 1, ['P' + i]: 1 };
-      V['hS' + i] = { obj: rS, ['S' + i]: 1, ['T' + i]: 1, ['P' + i]: 1 };
-      if (mandatory) { V['hA' + i]['mA' + i] = 1; V['hS' + i]['mS' + i] = 1; }
-      V['tr' + i] = { obj: rT, ['P' + i]: 1 };
-      keys.forEach((k, kk) => {
-        const cv = 'c' + k + i, fv = 'f' + k + i, uv = 'u' + k + i;
-        V[cv] = { obj: -1e-4 * costC[kk], cry: costC[kk], ['l' + cv]: 1 };
-        V[fv] = { obj: -1e-5 * costF[kk], ['l' + fv]: 1 };
-        V[uv] = { obj: -1e-6 * (kk === 0 ? 50 : 1) * (1 + 0.01 * i), [k + i]: -1 };
-        for (let j = i; j < n; j++) {
-          V[fv]['F' + j] = costF[kk];
-          V[cv]['B' + k + j] = -1; V[fv]['B' + k + j] = -1; V[uv]['B' + k + j] = 1;
+      TYPES.forEach((k, kk) => {
+        const u = 'u' + k + i, sh = 'x' + k + i, c = 'c' + k + i, f = 'f' + k + i;
+        V[u] = { cost: 0, ['N' + k + i]: 1 };
+        V[sh] = { cost: 1000 * (1 + 0.2 * (n - 1 - i)), ['N' + k + i]: 1 };
+        V[c] = { cost: cc[kk] * (1 + 0.001 * (n - i)), cry: cc[kk], ['L' + c]: 1 };
+        C['L' + c] = { max: S.climit > 0 ? S.climit : 999 };
+        m.ints[c] = 1;
+        if (useFeathers) {
+          V[f] = { cost: 0.05 * fc[kk] * (1 + 0.001 * (n - i)), ['L' + f]: 1 };
+          C['L' + f] = { max: S.flimit };
+          m.ints[f] = 1;
         }
-        C['l' + cv] = { max: S.climit > 0 ? S.climit : 999 };
-        C['l' + fv] = { max: S.flimit };
-        m.ints[cv] = 1; m.ints[fv] = 1; m.ints[uv] = 1;
+        for (let j = i; j < n; j++) {
+          V[u]['B' + k + j] = 1;
+          V[c]['B' + k + j] = -1;
+          if (useFeathers) { V[f]['B' + k + j] = -1; V[f]['F' + j] = fc[kk]; }
+        }
       });
     });
-    return m;
-  }
-
-  function optimize(solver, S, days) {
-    let m = buildModel(S, days, true);
-    m.options = { timeout: 4000, tolerance: 0.002 };
-    let r = solver.Solve(m);
-    if (!r.feasible) { m = buildModel(S, days, false); m.options = { timeout: 4000, tolerance: 0.002 }; r = solver.Solve(m); }
+    m.options = { timeout: 3000, tolerance: 0 };
+    const r = solver.Solve(m);
     if (!r.feasible) return null;
-    const g = k => Math.round(r[k] || 0);
+    const g = (k) => Math.max(0, Math.round(r[k] || 0));
     return days.map((d, i) => ({
-      play: d.play, shop: d.shop.slice(),
-      cry: [g('cA' + i), g('cS' + i), g('cT' + i)],
-      fea: [g('fA' + i), g('fS' + i), g('fT' + i)],
-      inv: [g('uA' + i), g('uS' + i), g('uT' + i)],
-      train: null,
+      cry: TYPES.map(k => g('c' + k + i)),
+      fea: TYPES.map(k => useFeathers ? g('f' + k + i) : 0),
     }));
   }
 
-  root.GameModel = { evaluate, buildModel, optimize };
+  // fallback when the solver is unavailable: bag first, then feathers, then crystals, day by day
+  function sourceGreedy(S, days, useFeathers) {
+    const bag = [S.invA, S.invS, S.invT];
+    let cry = S.crystals, fea = S.feathers0;
+    const cc = [S.cA, S.cS, S.cT], fc = [S.fA, S.fS, S.fT];
+    return days.map((d, i) => {
+      if (i > 0) fea += S.featherDay;
+      const nd = needs(S, d), out = { cry: [0, 0, 0], fea: [0, 0, 0] };
+      [2, 1, 0].forEach(k => {
+        bag[k] += S.shop;
+        let gap = Math.max(0, nd[k] - bag[k]);
+        while (gap > 0 && useFeathers && out.fea[k] < S.flimit && fea >= fc[k]) { out.fea[k]++; fea -= fc[k]; gap--; }
+        while (gap > 0 && (S.climit <= 0 || out.cry[k] < S.climit) && cry >= cc[k]) { out.cry[k]++; cry -= cc[k]; gap--; }
+        bag[k] += out.fea[k] + out.cry[k];
+        bag[k] -= Math.min(bag[k], nd[k]);
+      });
+      return out;
+    });
+  }
+
+  // ---------- full check: exchanges, balances, shortfalls, exp ----------
+  function check(solver, S, days, useFeathers) {
+    const ex = (solver && sourceLP(solver, S, days, useFeathers)) || sourceGreedy(S, days, useFeathers);
+    const R = rates(S);
+    const bag = [S.invA, S.invS, S.invT];
+    let cry = S.crystals, feaSpent = 0;
+    const st = { lv: S.startLv, pct: S.startPct, req: 1 };
+    let totalGain = 0, firstShort = -1;
+    const out = days.map((d, i) => {
+      const nd = needs(S, d), e = ex[i];
+      const used = [0, 0, 0], short = [0, 0, 0];
+      for (let k = 0; k < 3; k++) {
+        bag[k] += S.shop + e.cry[k] + e.fea[k];
+        used[k] = Math.min(bag[k], nd[k]);
+        short[k] = nd[k] - used[k];
+        bag[k] -= used[k];
+      }
+      const cryCost = e.cry[0] * S.cA + e.cry[1] * S.cS + e.cry[2] * S.cT;
+      const feaCost = e.fea[0] * S.fA + e.fea[1] * S.fS + e.fea[2] * S.fT;
+      cry -= cryCost; feaSpent += feaCost;
+      const feaLeft = S.feathers0 + S.featherDay * i - feaSpent;
+      const a = Math.max(0, d.a || 0), s = Math.max(0, d.s || 0), t = Math.max(0, d.t || 0), play = Math.max(0, d.play || 0);
+      const gain = a * R.a + s * R.s + t * R.t;
+      addExp(S, st, gain);
+      totalGain += gain;
+      const isShort = short.some(v => v > 0);
+      if (isShort && firstShort < 0) firstShort = i;
+      return {
+        ats: a + s, need: nd, used, short, isShort, cry: e.cry, fea: e.fea, cryCost, feaCost,
+        cryLeft: cry, feaLeft, bag: bag.slice(),
+        sum: a + s + t, spare: play - (a + s + t),
+        freeIdleA: Math.max(0, Math.min(S.freeA, play) - a), freeIdleS: Math.max(0, S.freeS - s),
+        gain, lv: st.lv, pct: st.pct,
+      };
+    });
+    return { days: out, totalGain, lv: st.lv, pct: st.pct, firstShort, bag: bag.slice(), cryLeft: cry, feaLeft: out.length ? out[out.length - 1].feaLeft : S.feathers0 };
+  }
+
+  // ---------- suggestion: max-exp split for given play hours ----------
+  function suggest(solver, S, days, useFeathers) {
+    const R = rates(S), n = days.length, inv0 = [S.invA, S.invS, S.invT];
+    const cc = [S.cA, S.cS, S.cT], fc = [S.fA, S.fS, S.fT];
+    const build = (mandatory) => {
+      const m = { optimize: 'obj', opType: 'max', constraints: {}, variables: {}, ints: {} };
+      const C = m.constraints, V = m.variables;
+      C.cry = { max: S.crystals };
+      days.forEach((d, i) => {
+        C['A' + i] = { max: S.freeA }; C['S' + i] = { max: S.freeS }; C['T' + i] = { max: S.freeT };
+        C['P' + i] = { max: d.play };
+        C['F' + i] = { max: S.feathers0 + S.featherDay * i };
+        if (mandatory) {
+          const ma = Math.min(S.freeA, d.play);
+          C['mA' + i] = { min: ma }; C['mS' + i] = { min: Math.min(S.freeS, Math.max(0, d.play - ma)) };
+        }
+        TYPES.forEach((k, kk) => { C['B' + k + i] = { max: inv0[kk] + S.shop * (i + 1) }; });
+      });
+      days.forEach((d, i) => {
+        V['hA' + i] = { obj: R.a * (1 + 1e-4 * (n - i)), ['A' + i]: 1, ['T' + i]: 1, ['P' + i]: 1 };
+        V['hS' + i] = { obj: R.s * (1 + 1e-4 * (n - i)), ['S' + i]: 1, ['T' + i]: 1, ['P' + i]: 1 };
+        if (mandatory) { V['hA' + i]['mA' + i] = 1; V['hS' + i]['mS' + i] = 1; }
+        V['tr' + i] = { obj: R.t, ['P' + i]: 1 };
+        m.ints['hA' + i] = 1; m.ints['hS' + i] = 1;
+        TYPES.forEach((k, kk) => {
+          const c = 'c' + k + i, f = 'f' + k + i, u = 'u' + k + i;
+          V[c] = { obj: -1e-4 * cc[kk], cry: cc[kk], ['L' + c]: 1 };
+          C['L' + c] = { max: S.climit > 0 ? S.climit : 999 };
+          V[u] = { obj: -1e-6 * (kk === 0 ? 50 : 1), [k + i]: -1 };
+          m.ints[c] = 1; m.ints[u] = 1;
+          if (useFeathers) {
+            V[f] = { obj: -1e-5 * fc[kk], ['L' + f]: 1 };
+            C['L' + f] = { max: S.flimit };
+            m.ints[f] = 1;
+          }
+          for (let j = i; j < n; j++) {
+            V[c]['B' + k + j] = -1; V[u]['B' + k + j] = 1;
+            if (useFeathers) { V[f]['B' + k + j] = -1; V[f]['F' + j] = fc[kk]; }
+          }
+        });
+      });
+      m.options = { timeout: 4000, tolerance: 0.002 };
+      return m;
+    };
+    let r = solver.Solve(build(true));
+    if (!r.feasible) r = solver.Solve(build(false));
+    if (!r.feasible) return null;
+    return days.map((d, i) => {
+      const a = Math.round(r['hA' + i] || 0), s = Math.round(r['hS' + i] || 0);
+      return { play: d.play, a, s, t: Math.max(0, +(d.play - a - s).toFixed(2)) };
+    });
+  }
+
+  root.GameModel = { needs, check, suggest };
 })(typeof window !== 'undefined' ? window : globalThis);

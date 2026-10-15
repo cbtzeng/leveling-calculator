@@ -4,157 +4,156 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>七日練功試算</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
 <style>
-/* Layout: control-room sheet — summary strip, level chart, then the 7-day ledger with inputs; report + settings below */
+/* Layout: one input sheet (days as rows) → resource check sheet → collapsed settings */
 :root{
-  --bg:#EEF0EC; --panel:#FAFBF8; --ink:#1B2220; --muted:#5E6A66; --line:#D3D9D3;
+  --bg:#EEF0EC; --panel:#FAFBF8; --ink:#1B2220; --muted:#5E6A66; --line:#D3D9D3; --field:#FFFFFF;
   --gold:#A8680E; --gold-soft:#F3E3C6;
-  --aban:#2D6B63; --aban-soft:#DCEBE7;
-  --shadow:#5B4489; --shadow-soft:#E6E0F1;
-  --train:#7A6A3A;
-  --bad:#B3361F; --bad-soft:#F6DDD6; --ok:#2E7A3D;
+  --aban:#2D6B63; --shadow:#5B4489; --train:#7A6A3A;
+  --bad:#B3361F; --bad-soft:#F6DDD6; --ok:#2E7A3D; --ok-soft:#DDEEDF; --warn:#9A6A00; --warn-soft:#F6ECCF;
   --f-display:"Chakra Petch","Noto Sans TC",system-ui,sans-serif;
   --f-body:"Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#141917; --panel:#1C2220; --ink:#E6EAE6; --muted:#9AA6A1; --line:#323B38;
-  --gold:#E3A445; --gold-soft:#3A2E1A; --aban:#6FC1B4; --aban-soft:#1E3330;
-  --shadow:#B59BE6; --shadow-soft:#2C2540; --train:#CDBB85; --bad:#F08A72; --bad-soft:#3F2420; --ok:#7BCB8B; color-scheme:dark}}
+  --bg:#141917; --panel:#1C2220; --ink:#E6EAE6; --muted:#9AA6A1; --line:#323B38; --field:#141917;
+  --gold:#E3A445; --gold-soft:#3A2E1A; --aban:#6FC1B4; --shadow:#B59BE6; --train:#CDBB85;
+  --bad:#F08A72; --bad-soft:#3F2420; --ok:#7BCB8B; --ok-soft:#1F3324; --warn:#E5C26A; --warn-soft:#3A3219; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#141917; --panel:#1C2220; --ink:#E6EAE6; --muted:#9AA6A1; --line:#323B38;
-  --gold:#E3A445; --gold-soft:#3A2E1A; --aban:#6FC1B4; --aban-soft:#1E3330;
-  --shadow:#B59BE6; --shadow-soft:#2C2540; --train:#CDBB85; --bad:#F08A72; --bad-soft:#3F2420; --ok:#7BCB8B; color-scheme:dark}
-body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
-.wrap{max-width:1180px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
-h1{font-family:var(--f-display);font-size:26px;margin:0;letter-spacing:.02em;text-wrap:balance}
-h2{font-family:var(--f-body);font-size:17px;margin:0 0 10px;font-weight:700;text-wrap:balance}
-.sub{color:var(--muted);margin:4px 0 0;max-width:70ch}
-.num{font-family:var(--f-display);font-variant-numeric:tabular-nums}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-.summary{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:12px}
+  --bg:#141917; --panel:#1C2220; --ink:#E6EAE6; --muted:#9AA6A1; --line:#323B38; --field:#141917;
+  --gold:#E3A445; --gold-soft:#3A2E1A; --aban:#6FC1B4; --shadow:#B59BE6; --train:#CDBB85;
+  --bad:#F08A72; --bad-soft:#3F2420; --ok:#7BCB8B; --ok-soft:#1F3324; --warn:#E5C26A; --warn-soft:#3A3219; color-scheme:dark}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55}
+[hidden]{display:none!important}
+.wrap{max-width:1040px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+h1{font-family:var(--f-display);font-size:26px;margin:0;letter-spacing:.02em}
+h2{font-size:17px;margin:0;font-weight:700}
+.sub{color:var(--muted);margin:4px 0 0;max-width:72ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .stat{display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat .k{font-size:12px;color:var(--muted);letter-spacing:.04em}
 .stat .v{font-family:var(--f-display);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
-.stat.big .v{font-size:38px;color:var(--gold);line-height:1.1}
 .stat .d{font-size:12px;color:var(--muted)}
-.up{color:var(--ok)} .down{color:var(--bad)}
-@media (max-width:760px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.stat.big{grid-column:1/-1}}
-.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.stat.lv .v{color:var(--gold);font-size:30px;line-height:1.15}
+.stat .v.okv{color:var(--ok)} .stat .v.badv{color:var(--bad)}
+@media (max-width:720px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;user-select:none}
+.toggle input{width:18px;height:18px;accent-color:var(--gold)}
 button{font:inherit;font-weight:500;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--gold)}
 button.primary{background:var(--gold);border-color:var(--gold);color:var(--panel);font-weight:700}
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .msg{font-size:13px;color:var(--muted)}
-.warns{display:flex;flex-wrap:wrap;gap:6px}
-.chip{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--bad-soft);color:var(--bad);font-weight:500}
-.chip.okc{background:var(--aban-soft);color:var(--ok)}
+.alerts{display:flex;flex-direction:column;gap:6px}
+.alert{border-radius:8px;padding:8px 12px;font-size:13.5px;background:var(--bad-soft);color:var(--bad)}
+.alert.ok{background:var(--ok-soft);color:var(--ok)}
+.alert.warn{background:var(--warn-soft);color:var(--warn)}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
-.ledger{min-width:860px}
-.ledger th,.ledger td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
-.ledger thead th{font-family:var(--f-display);font-size:13px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel)}
-.ledger th.rl{text-align:left;font-weight:500;color:var(--ink);font-family:var(--f-body);font-size:13px;position:sticky;left:0;background:var(--panel);z-index:1}
-.ledger tr.grp th{background:var(--bg);text-align:left;font-size:12px;letter-spacing:.06em;color:var(--muted);padding-top:9px}
-.ledger tr.grp th:first-child{position:sticky;left:0}
-.dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
-.ledger input{width:3.4em;font:inherit;font-family:var(--f-display);text-align:center;padding:3px 2px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink)}
-.ledger input::placeholder{color:var(--muted);font-family:var(--f-body);font-size:12px}
-.ledger td.out{font-family:var(--f-display)}
-.ledger tr.lvl td{font-weight:700;color:var(--gold)}
-td.bad{background:var(--bad-soft);color:var(--bad)}
-.idle{display:block;font-size:11px;color:var(--bad);font-family:var(--f-body)}
-.of{color:var(--muted);font-size:11px}
-.chart svg{width:100%;height:auto;display:block}
-.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);flex-wrap:wrap}
-.legend i{display:inline-block;width:18px;height:3px;vertical-align:3px;margin-right:6px}
-.report td,.report th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}
-.report th{font-size:12px;color:var(--muted);font-weight:500}
-.report td:first-child,.report th:first-child{text-align:left}
-.report tr.best td{background:var(--gold-soft)}
-.report .tag{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--shadow-soft);color:var(--shadow);margin-left:6px}
-.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 22px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+thead th{font-size:12px;color:var(--muted);font-weight:500;vertical-align:bottom}
+tbody th{text-align:left;font-weight:500}
+th.day{position:sticky;left:0;background:var(--panel);z-index:1}
+.plan{min-width:640px}
+.res{min-width:760px}
+.plan input{width:4em;font:inherit;font-family:var(--f-display);text-align:center;padding:4px 2px;border:1px solid var(--line);border-radius:6px;background:var(--field);color:var(--ink)}
+.num{font-family:var(--f-display)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:1px}
+td.auto{font-family:var(--f-display);color:var(--gold);font-weight:600}
+td.lvl{font-family:var(--f-display);font-weight:600;color:var(--gold)}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;font-family:var(--f-body)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.bad{background:var(--bad-soft);color:var(--bad);font-weight:700}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+tr.short td,tr.short th{background:var(--bad-soft)}
+.note{font-size:11.5px;color:var(--muted);display:block}
+.ex{font-size:13px}
+.zero{color:var(--muted)}
+tfoot td,tfoot th{font-weight:700;border-bottom:none}
+details>summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none}
+details>summary::before{content:"▸ ";color:var(--gold)}
+details[open]>summary::before{content:"▾ "}
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 22px;margin-top:12px}
 .settings fieldset{border:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;min-width:0}
 .settings legend{font-weight:700;font-size:13px;margin-bottom:4px;padding:0}
 .settings label{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
-.settings input,.settings select{width:6.5em;font:inherit;font-family:var(--f-display);padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);text-align:right}
-.settings select{width:auto;text-align:left;font-family:var(--f-body)}
-details>summary{cursor:pointer;font-weight:700;font-size:17px;list-style:none}
-details>summary::before{content:"▸ ";color:var(--gold)}
-details[open]>summary::before{content:"▾ "}
+.settings input,.settings select{width:6.5em;font:inherit;font-family:var(--f-display);padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:var(--field);color:var(--ink);text-align:right}
+.settings select,.settings input[type=date]{width:auto;text-align:left;font-family:var(--f-body)}
 .notes{color:var(--muted);font-size:13px;max-width:78ch;margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:4px}
-.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}
-@media (max-width:860px){.split{grid-template-columns:minmax(0,1fr)}}
-.insight{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px;max-width:70ch}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-body{margin:0;font-family:var(--f-body)}
-:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-[hidden]{display:none!important}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>七日練功試算</h1>
-    <p class="sub"><span id="rangeTxt"></span>共 7 天。調整每天的商店購買、結晶體／羽毛兌換、背包庫存石頭與團練時數，看每天的遊玩時數、經驗與等級變化。</p>
+    <p class="sub"><span id="rangeTxt"></span>。每天填可玩時數、團練、被遺棄者之地、暗影神殿，ATS 自動加總。商店每天各買 3 顆石頭，不夠的部分自動用羽毛和結晶體兌換，資源不夠時會告訴你哪一天開始缺。</p>
   </header>
 
   <section class="panel">
     <div class="summary">
-      <div class="stat big"><span class="k">第 7 天結束預估等級</span><span class="v" id="sumLv">–</span><span class="d" id="sumLvD"></span></div>
-      <div class="stat"><span class="k">一週總經驗（40 級 %）</span><span class="v" id="sumExp">–</span><span class="d" id="sumExpD"></span></div>
-      <div class="stat"><span class="k">一週總遊玩時數</span><span class="v" id="sumPlay">–</span><span class="d" id="sumPlayD"></span></div>
-      <div class="stat"><span class="k">週末剩餘</span><span class="v" id="sumLeft" style="font-size:15px;line-height:1.5">–</span><span class="d">結晶體／羽毛／背包石頭（遺棄·暗影·ATS）</span></div>
+      <div class="stat lv"><span class="k">第 7 天結束等級</span><span class="v" id="sumLv">–</span><span class="d" id="sumExp"></span></div>
+      <div class="stat"><span class="k">資源夠不夠</span><span class="v" id="sumOk">–</span><span class="d" id="sumOkD"></span></div>
+      <div class="stat"><span class="k">週末剩下 結晶／羽毛</span><span class="v" id="sumLeft">–</span><span class="d" id="sumLeftD"></span></div>
+      <div class="stat"><span class="k">週末背包石頭</span><span class="v" id="sumBag" style="font-size:18px">–</span><span class="d">被遺棄·暗影·ATS，留到下週</span></div>
     </div>
   </section>
 
-  <div class="actions">
-    <button class="primary" id="btnOpt" type="button">一鍵最佳化</button>
-    <button id="btnShop" type="button">只買商店（不換、不用庫存）</button>
-    <button id="btnOrig" type="button">原本打算（每天換 4 顆 ATS）</button>
-    <button id="btnPin" type="button">把目前方案設為比較基準</button>
-    <button id="btnReset" type="button">恢復預設值</button>
+  <div class="bar">
+    <label class="toggle"><input type="checkbox" id="useFea" checked> 使用羽毛兌換</label>
+    <button class="primary" type="button" id="btnSuggest">幫我排經驗最多的時數</button>
+    <button type="button" id="btnReset">恢復預設值</button>
     <span class="msg" id="msg"></span>
   </div>
-  <div class="warns" id="warns"></div>
+  <div class="alerts" id="alerts"></div>
 
-  <section class="panel chart">
-    <h2>每日等級進度</h2>
-    <div id="chart"></div>
-    <div class="legend"><span><i style="background:var(--gold)"></i>目前方案</span><span><i style="background:var(--muted);height:0;border-top:2px dashed var(--muted)"></i><span id="cmpName">比較基準</span></span></div>
+  <section class="panel">
+    <h2>每日時數</h2>
+    <div class="scroll">
+      <table class="plan" id="plan">
+        <thead><tr>
+          <th class="day">日期</th><th>可玩</th>
+          <th><span class="dot" style="background:var(--train)"></span>團練</th>
+          <th><span class="dot" style="background:var(--aban)"></span>被遺棄者之地</th>
+          <th><span class="dot" style="background:var(--shadow)"></span>暗影神殿</th>
+          <th>ATS<span class="note">自動＝兩張地圖</span></th>
+          <th>時間檢查</th><th>當天經驗</th><th>日終等級</th>
+        </tr></thead>
+        <tbody id="planBody"></tbody>
+        <tfoot><tr id="planFoot"></tr></tfoot>
+      </table>
+    </div>
   </section>
 
   <section class="panel">
-    <h2>每日配置</h2>
-    <p class="sub" style="margin:0 0 10px">白底欄位可以改。團練留空＝自動用掉當天剩下的可玩時數。掛機順序：先掛完被遺棄者之地的免費時數，再排暗影神殿（每小時經驗較高），最後才用被遺棄者之地石頭。</p>
-    <div class="scroll"><table class="ledger" id="ledger"></table></div>
-  </section>
-
-  <section class="split">
-    <div class="panel">
-      <h2>方案比較</h2>
-      <div class="scroll"><table class="report" id="report"></table></div>
-      <p class="msg" id="repMsg" style="margin:8px 0 0"></p>
-    </div>
-    <div class="panel">
-      <h2>配法重點</h2>
-      <ul class="insight" id="insight"></ul>
+    <h2>石頭從哪裡來</h2>
+    <p class="sub" style="margin:0">「要用石頭」＝超過每日免費時數的部分。先用背包（含商店每天買的各 3 顆），不夠才換。兌換數量已經算成最省的配法，照著換就好。</p>
+    <div class="scroll">
+      <table class="res">
+        <thead><tr>
+          <th class="day">日期</th>
+          <th>要用石頭<span class="note">被遺棄／暗影／ATS</span></th>
+          <th>羽毛換</th><th>結晶體換</th><th>狀態</th>
+          <th>羽毛剩</th><th>結晶體剩</th><th>日終背包<span class="note">被遺棄／暗影／ATS</span></th>
+        </tr></thead>
+        <tbody id="resBody"></tbody>
+      </table>
     </div>
   </section>
 
   <details class="panel" id="setBox">
     <summary>遊戲數值與資源設定</summary>
-    <div class="settings" style="margin-top:14px">
-      <fieldset><legend>日期</legend>
-        <label>第一天<input id="s_startDate" type="date" style="width:auto"></label>
-      </fieldset>
-      <fieldset><legend>角色</legend>
+    <div class="settings">
+      <fieldset><legend>日期與角色</legend>
+        <label>第一天<input id="s_startDate" type="date"></label>
         <label>目前等級<input id="s_startLv" type="number" step="1"></label>
         <label>目前經驗 %<input id="s_startPct" type="number" step="0.1"></label>
         <label>每級需求增加 %<input id="s_growth" type="number" step="0.5"></label>
-        <label>經驗計算方式<select id="s_expMode"><option value="abs">實際經驗固定（升級後 % 變少）</option><option value="pct">百分比固定</option></select></label>
+        <label>經驗計算<select id="s_expMode"><option value="abs">實際經驗固定</option><option value="pct">百分比固定</option></select></label>
       </fieldset>
       <fieldset><legend>經驗效率</legend>
         <label>被遺棄者之地 每 20 分 %<input id="s_rateA" type="number" step="0.01"></label>
@@ -164,45 +163,41 @@ body{margin:0;font-family:var(--f-body)}
       <fieldset><legend>每日免費時數</legend>
         <label>被遺棄者之地<input id="s_freeA" type="number" step="1"></label>
         <label>暗影神殿<input id="s_freeS" type="number" step="1"></label>
-        <label>ATS 自動掛機<input id="s_freeT" type="number" step="1"></label>
+        <label>ATS<input id="s_freeT" type="number" step="1"></label>
+        <label>商店每天各買<input id="s_shop" type="number" step="1"></label>
       </fieldset>
-      <fieldset><legend>貨幣</legend>
-        <label>本週結晶體總數<input id="s_crystals" type="number" step="1"></label>
-        <label>目前羽毛（含今天）<input id="s_feathers0" type="number" step="1"></label>
+      <fieldset><legend>目前資源</legend>
+        <label>本週結晶體<input id="s_crystals" type="number" step="1"></label>
+        <label>第一天羽毛（含當天）<input id="s_feathers0" type="number" step="1"></label>
         <label>每天新增羽毛<input id="s_featherDay" type="number" step="1"></label>
       </fieldset>
       <fieldset><legend>目前背包石頭</legend>
-        <label>被遺棄者之地石頭<input id="s_invA" type="number" step="1"></label>
-        <label>暗影神殿石頭<input id="s_invS" type="number" step="1"></label>
-        <label>ATS 石頭<input id="s_invT" type="number" step="1"></label>
+        <label>被遺棄者之地<input id="s_invA" type="number" step="1"></label>
+        <label>暗影神殿<input id="s_invS" type="number" step="1"></label>
+        <label>ATS<input id="s_invT" type="number" step="1"></label>
       </fieldset>
-      <fieldset><legend>兌換價格</legend>
+      <fieldset><legend>兌換價格與上限</legend>
         <label>結晶：被遺棄／ATS<input id="s_cA" type="number" step="1"></label>
         <label>結晶：暗影<input id="s_cS" type="number" step="1"></label>
         <label>羽毛：被遺棄／ATS<input id="s_fA" type="number" step="1"></label>
         <label>羽毛：暗影<input id="s_fS" type="number" step="1"></label>
-      </fieldset>
-      <fieldset><legend>兌換上限（每種每天）</legend>
-        <label>羽毛兌換<input id="s_flimit" type="number" step="1"></label>
-        <label>結晶兌換（0＝不限）<input id="s_climit" type="number" step="1"></label>
+        <label>羽毛每種每天最多<input id="s_flimit" type="number" step="1"></label>
+        <label>結晶每種每天最多（0＝不限）<input id="s_climit" type="number" step="1"></label>
       </fieldset>
     </div>
   </details>
 
   <section>
-    <h2>計算假設</h2>
+    <h2 style="margin-bottom:6px">計算方式</h2>
     <ul class="notes">
-      <li>經驗以「40 級一整級＝100%」當單位。預設地圖與團練拿到的實際經驗固定，升級後同樣經驗換算成的 % 會變少（每級需求 +5%）。若遊戲是依等級調整，可在設定改成「百分比固定」。</li>
-      <li>ATS 時數由兩張地圖共用：掛機時數 ＝ min(地圖可用時數, ATS 可用時數, 當天可玩時數)。</li>
-      <li>團練以每小時 7÷3 ≈ 2.33% 按比例計算，沒掛機的可玩時間全拿去團練。</li>
-      <li>結晶體 340 個在第一天就全部可用；羽毛每天 +60（今天的已含在 286 內），當天換不完會累積到隔天。</li>
-      <li>每天的免費時數（被遺棄者之地、暗影神殿、ATS）一定掛完，當天沒用就消失。買的、換的石頭都進背包，可以留到之後用；週末背包剩下的石頭（多半是被遺棄者之地）留給下週。</li>
-      <li>若第一天已經過了一部分，直接改第一天的「可玩上限」再按一鍵最佳化。</li>
-      <li>你的設定只存在這台裝置的瀏覽器裡，換裝置或清除瀏覽資料就會回到預設值。</li>
+      <li>ATS 時數 ＝ 被遺棄者之地 ＋ 暗影神殿。每天免費：被遺棄者之地 3 h、暗影神殿 1 h、ATS 3 h，超過的每小時用 1 顆石頭。</li>
+      <li>買的、換的石頭都進背包，可以留到之後用。兌換時優先用羽毛（會每天補），再用結晶體，總量是整週最省的配法。</li>
+      <li>某天的石頭就算把能換的都換了還是不夠，那一天會標紅，並寫出缺幾小時。經驗仍照你填的時數計算。</li>
+      <li>經驗以起始等級一整級＝100% 計算，每升一級需求 +5%。團練以每小時 7÷3 ≈ 2.33% 按比例計算。</li>
+      <li>設定存在這台裝置的瀏覽器裡。</li>
     </ul>
   </section>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/javascript-lp-solver@0.4.24/prod/solver.js"></script>
 <script src="model.js"></script>
 <script src="app.js"></script>
